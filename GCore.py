@@ -1,39 +1,16 @@
 #!/usr/bin/env python3
 # from __future__ import annotations
-import time
+from dataclasses import dataclass
+
 import requests
 import json
 
 from GCoreNetwork import GCoreCloudSubnet, GCoreCloudFloatingIP, GCoreCloudReservedFixedIP, GCoreCloudNetwork
-
-
-API_TIMEOUT = 3600
-GCORE_AUTH_URL = "https://api.gcdn.co/auth/jwt/login"
-BASE_URL = "https://api.cloud.gcorelabs.com/v1"
-
-
-class GCoreAuth:
-    def auth_to_gcore(self):
-        headers = {'Content-type': 'application/json'}
-        auth = requests.post(GCORE_AUTH_URL, data=(json.dumps(self.gcore_auth)), headers=headers).json()
-        self.__headers = {"Authorization": "Bearer {}".format(auth['access']), 'Content-type': 'application/json'}
-        self.__headers_timestamp = time.time()
-
-    def __init__(self, username, password):
-        self.gcore_auth = {"username": username, "password": password}
-        self.auth_url = GCORE_AUTH_URL
-        self.auth_to_gcore()
-
-    @property
-    def headers(self):
-        if self.__headers_timestamp - time.time() < API_TIMEOUT:
-            return self.__headers
-        else:
-            self.auth_to_gcore()
-            return self.__headers
+from settings import BASE_URL
 
 
 class GCoreBase:
+    # Пока не вырезать
     def __init__(self, creds: GCoreAuth):
         self.__headers = creds.headers
         self.__creds = creds
@@ -47,57 +24,52 @@ class GCoreBase:
         return self.__creds
 
 
-class GCoreCloudProject(GCoreBase):
-    def __init__(self, creds: GCoreAuth, project: dict):
-        super().__init__(creds)
-        self.name = project.get('name')
-        self.id = project.get('id')
-        self.state = project.get('state')
+class ProjectDoesNotExists(Exception):
+    pass
 
 
-class GCoreCloudRegion(GCoreBase):
-    def __init__(self, creds: GCoreAuth, region: dict):
-        '''
-        :param gcoreauth:
-        :param region: region object with rows country, display_name, keystone_name, state
-        '''
-        super().__init__(creds)
-        self.country = region.get('country')
-        self.keystone_id = region.get('keystone_id')
-        self.external_network_id = region.get('external_network_id')
-        self.id = region.get('id')
-        self.state = region.get('state')
-        self.display_name = region.get('display_name')
+class RegionDoesNotExists(Exception):
+    pass
 
 
-class GCoreCloud(GCoreBase):
-    def __init__(self, creds: GCoreAuth):
-        regions_url = f"{BASE_URL}/regions"
-        projects_url = f"{BASE_URL}/projects"
-        super().__init__(creds)
-        self.projects = [GCoreCloudProject(creds, i) for i in requests.get(
-            projects_url, headers=self.headers).json().get('results')]
-        self.regions = [GCoreCloudRegion(creds, i) for i in requests.get(
-            regions_url, headers=self.headers).json().get('results')]
+class GCoreCloud:
+    """Облако."""
+
+    regions_url = f'{BASE_URL}/regions'
+    projects_url = f'{BASE_URL}/projects'
+
+    def __init__(self, headers: dict):
+        self.headers = headers
+        self.projects = self._get_request(self.projects_url)
+        self.regions = self._get_request(self.regions_url)
+
+    def _get_request(self, url):
+        response = requests.get(
+            url, headers=self.headers
+        ).json().get('results')
+        return response
 
     def get_project(self, project_name):
         for project in self.projects:
-            if project.name.lower() == project_name.lower():
+            if project['name'] == project_name:
                 return project
-        raise Exception(f"Wrong project name, should"
-                        f" be in: {', '.join([project.name for project in self.projects])}")
+        raise ProjectDoesNotExists(
+            f'Wrong project name, should '
+            f'be in: {", ".join([project["name"] for project in self.projects])}'
+        )
 
     def get_region(self, display_name):
         for region in self.regions:
             if region.display_name.lower() == display_name.lower():
                 return region
-        raise Exception(f"Wrong region name, should"
-                        f" be in: {', '.join([region.display_name for region in self.regions])}")
+        raise RegionDoesNotExists(
+            f'Wrong region name, should '
+            f'be in: {", ".join([region.display_name for region in self.regions])}')
 
     def get_region_names(self):
         return [region.country for region in self.regions]
 
-    def get_project_name(self):
+    def get_project_names(self):
         return [project.name for project in self.projects]
 
     def get_all_networks(self, project: GCoreCloudRegion, region: GCoreCloudProject):

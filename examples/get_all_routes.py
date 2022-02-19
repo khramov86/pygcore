@@ -1,19 +1,11 @@
-import os
-
+from GCore import GCoreCloud
+from auth import client
 import yaml
-from dotenv import load_dotenv
 
-from gcore_api.GCore import GCoreAuth, GCoreCloud
 
-load_dotenv()
-
-username = str(os.getenv("GCORE_USERNAME"))
-password = str(os.getenv("GCORE_PASSWORD"))
-
-login = GCoreAuth(username, password)
-cloud = GCoreCloud(login)
-project = cloud.get_project("SberDevices")
-region = cloud.get_region("Moscow")
+cloud = GCoreCloud(headers=client)
+project = cloud.get_project('SberDevices')
+region = cloud.get_region('Moscow')
 networks = cloud.get_all_networks(project, region)
 subnets = cloud.get_all_subnets(project, region)
 routes_dict = {}
